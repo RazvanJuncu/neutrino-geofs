@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Immersive Airports Flyby</title>
+<style>
+  :root{
+    --black:#000000;
+    --map:#070a0d;
+    --apron:#596168;
+    --yellow:#f2c500;
+    --button:#a4a4a4;
+  }
+
+  *{box-sizing:border-box}
+  html,body{width:100%;height:100%;margin:0}
+
+  body{
+    display:grid;
+    place-items:center;
+    overflow:hidden;
+    background:var(--black);
+    font-family:Arial,Helvetica,sans-serif;
+  }
+
+  .flyby{
+    position:relative;
+    width:100vw;
+    height:min(330px,52vw);
+    min-height:210px;
+    overflow:hidden;
+    background:var(--map);
+  }
+
+  svg{display:block;width:100%;height:100%}
+
+  .cloud{
+    fill:var(--apron);
+    opacity:0;
+    transform-box:fill-box;
+    transform-origin:center;
+    transform:translateX(22px) scale(.92);
+    transition:opacity .7s ease,transform 1.05s cubic-bezier(.2,.8,.2,1);
+  }
+  .cloud.show{opacity:.34;transform:translateX(0) scale(1)}
+  .cloud.fade{opacity:.12;transform:translateX(-20px) scale(1.02)}
+
+  #trailBase,#trailActive{
+    fill:none;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+  }
+  #trailBase{stroke:rgba(242,197,0,.12);stroke-width:2}
+  #trailActive{stroke:var(--yellow);stroke-width:3}
+
+  #plane{filter:drop-shadow(0 3px 3px rgba(0,0,0,.55))}
+  #plane path{fill:#fff}
+
+  .mode-control{
+    position:absolute;
+    top:28px;
+    right:clamp(20px,4vw,58px);
+    width:58px;
+    height:38px;
+    z-index:5;
+    overflow:hidden;
+    border:1px solid #767676;
+    border-radius:1px;
+    background:var(--button);
+    color:#050505;
+    font-size:14px;
+    line-height:36px;
+    text-align:center;
+    box-shadow:0 2px 5px rgba(0,0,0,.38);
+  }
+
+  .mode-label{
+    position:absolute;
+    inset:0;
+    transition:opacity .28s ease,transform .28s ease;
+  }
+  .mode-label.arr{opacity:0;transform:translateY(7px)}
+  .mode-control.arrival .mode-label.twy{opacity:0;transform:translateY(-7px)}
+  .mode-control.arrival .mode-label.arr{opacity:1;transform:translateY(0)}
+
+  .status-stripe{
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:0;
+    height:4px;
+    background:var(--yellow);
+    transform:scaleX(0);
+    transform-origin:left;
+    transition:transform .42s cubic-bezier(.2,.8,.2,1);
+  }
+  .mode-control.arrival .status-stripe{transform:scaleX(1)}
+
+  @media(prefers-reduced-motion:reduce){
+    .cloud,.mode-label,.status-stripe{transition:none}
+  }
+</style>
+</head>
+<body>
+  <main class="flyby" aria-label="Aircraft flyby animation">
+    <svg id="scene" viewBox="0 0 1000 300" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <g id="clouds">
+        <path class="cloud" data-in=".04" data-out=".48" d="M35 64 C52 37 91 38 106 61 C132 48 167 62 168 91 C168 115 145 128 119 126 H55 C24 126 8 108 13 87 C16 73 23 67 35 64Z"/>
+        <path class="cloud" data-in=".13" data-out=".58" d="M184 194 C204 163 250 165 267 190 C294 176 329 192 329 221 C329 246 306 258 278 257 H201 C168 257 153 235 160 216 C164 204 172 198 184 194Z"/>
+        <path class="cloud" data-in=".28" data-out=".70" d="M382 62 C399 33 444 38 456 66 C485 49 525 68 520 101 C517 123 495 133 472 131 H397 C366 131 350 111 356 91 C359 76 368 67 382 62Z"/>
+        <path class="cloud" data-in=".44" data-out=".84" d="M570 186 C592 151 642 156 657 187 C681 172 720 184 725 213 C730 241 706 258 679 258 H591 C557 258 541 236 548 214 C552 199 559 192 570 186Z"/>
+        <path class="cloud" data-in=".62" data-out=".96" d="M754 67 C773 37 818 41 832 69 C859 53 899 68 902 99 C904 123 882 139 857 137 H775 C742 137 726 117 732 95 C735 80 743 72 754 67Z"/>
+      </g>
+
+      <path id="trailBase" d="M-30 151 C180 148 326 157 488 151 S786 145 1035 151"/>
+      <path id="trailActive" d="M-30 151 C180 148 326 157 488 151 S786 145 1035 151"/>
+
+      <g id="plane" transform="translate(-55 151) rotate(90)">
+        <path d="M0,-19 C2,-18 3,-15 3,-11 L3,-5 L14,2 L14,5 L3,2 L3,11 L7,15 L7,17 L0,15 L-7,17 L-7,15 L-3,11 L-3,2 L-14,5 L-14,2 L-3,-5 L-3,-11 C-3,-15 -2,-18 0,-19 Z"/>
+      </g>
+    </svg>
+
+    <div class="mode-control" id="modeControl" aria-label="Arrival mode">
+      <span class="mode-label twy">TWY</span>
+      <span class="mode-label arr">ARR</span>
+      <span class="status-stripe"></span>
+    </div>
+  </main>
+
+<script>
+  const plane = document.getElementById('plane');
+  const trail = document.getElementById('trailActive');
+  const trailPath = document.getElementById('trailBase');
+  const modeControl = document.getElementById('modeControl');
+  const clouds = [...document.querySelectorAll('.cloud')];
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const trailLength = trail.getTotalLength();
+
+  trail.style.strokeDasharray = trailLength;
+  trail.style.strokeDashoffset = trailLength;
+
+  const wait = ms => new Promise(resolve => setTimeout(resolve,reduceMotion?0:ms));
+  const smooth = t => t*t*(3-2*t);
+
+  function frame(progress){
+    const p = trailPath.getPointAtLength(trailLength*progress);
+    const next = trailPath.getPointAtLength(Math.min(trailLength,trailLength*progress+3));
+    const angle = Math.atan2(next.y-p.y,next.x-p.x)*180/Math.PI+90;
+
+    plane.setAttribute('transform',`translate(${p.x} ${p.y}) rotate(${angle}) scale(1.16)`);
+    trail.style.strokeDashoffset = trailLength*(1-progress);
+
+    clouds.forEach(cloud=>{
+      const enter=Number(cloud.dataset.in);
+      const exit=Number(cloud.dataset.out);
+      cloud.classList.toggle('show',progress>=enter);
+      cloud.classList.toggle('fade',progress>=exit);
+    });
+
+    if(progress>=.67) modeControl.classList.add('arrival');
+  }
+
+  function animate(duration){
+    return new Promise(resolve=>{
+      if(reduceMotion){frame(1);resolve();return}
+      const start=performance.now();
+      function tick(now){
+        const raw=Math.min(1,(now-start)/duration);
+        frame(smooth(raw));
+        if(raw<1) requestAnimationFrame(tick); else resolve();
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function reset(){
+    plane.setAttribute('transform','translate(-55 151) rotate(90) scale(1.16)');
+    trail.style.strokeDashoffset=trailLength;
+    modeControl.classList.remove('arrival');
+    clouds.forEach(cloud=>cloud.classList.remove('show','fade'));
+  }
+
+  async function sequence(){
+    while(true){
+      reset();
+      await wait(700);
+      await animate(6200);
+      await wait(1500);
+    }
+  }
+
+  sequence();
+</script>
+</body>
+</html>
