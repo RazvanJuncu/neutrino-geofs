@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Immersive Airports Gate Guidance</title>
+<style>
+  :root{
+    --black:#000;
+    --map:#070a0d;
+    --apron:#596168;
+    --apron-dark:#343b41;
+    --yellow:#f2c500;
+    --red:#ff5b61;
+  }
+  *{box-sizing:border-box}
+  html,body{width:100%;height:100%;margin:0}
+  body{display:grid;place-items:center;overflow:hidden;background:var(--black);font-family:Arial,Helvetica,sans-serif}
+  .stage{position:relative;width:100vw;height:min(390px,58vw);min-height:240px;overflow:hidden;background:var(--map)}
+  svg{display:block;width:100%;height:100%}
+
+  .terminal{fill:var(--apron);opacity:.42}
+  .terminal-detail{fill:var(--apron-dark);opacity:.8}
+  .window{fill:#778087;opacity:.42}
+  .jetbridge{fill:var(--apron);stroke:#747d83;stroke-width:1;opacity:.82}
+  .accordion{stroke:#343b41;stroke-width:3;opacity:.65}
+  .map-building{fill:#242b30;stroke:#394249;stroke-width:1.2}
+  .map-detail{fill:none;stroke:#3f484f;stroke-width:1;opacity:.9}
+  .stand-line{fill:none;stroke:rgba(242,197,0,.14);stroke-width:3;stroke-linecap:round}
+  #activeLine{fill:none;stroke:var(--yellow);stroke-width:3.4;stroke-linecap:round;stroke-linejoin:round}
+  #plane{filter:drop-shadow(0 3px 3px rgba(0,0,0,.6))}
+  #plane path{fill:#fff}
+
+  .marshaller{
+    position:absolute;
+    top:clamp(18px,5vw,42px);
+    right:150px;
+    width:112px;
+    height:94px;
+    z-index:4;
+    border:2px solid #747b80;
+    border-radius:12px;
+    overflow:hidden;
+    background:rgba(5,7,9,.95);
+    box-shadow:0 5px 14px rgba(0,0,0,.5);
+  }
+  .wand{
+    position:absolute;
+    top:17px;
+    width:7px;
+    height:43px;
+    border-radius:6px;
+    background:var(--red);
+    box-shadow:0 0 5px rgba(255,91,97,.4);
+    transform-origin:50% 100%;
+    transition:transform .5s cubic-bezier(.2,.8,.2,1);
+  }
+  .wand.left{left:39px;animation:forwardLeft .85s ease-in-out infinite}
+  .wand.right{right:39px;animation:forwardRight .85s ease-in-out infinite}
+  .marshaller.slow .wand.left{animation:slowLeft 1.05s ease-in-out infinite}
+  .marshaller.slow .wand.right{animation:slowRight 1.05s ease-in-out infinite}
+  .marshaller.stop .wand{
+    animation:none;
+    top:18px;
+    left:52.5px;
+    right:auto;
+    height:43px;
+    transform-origin:50% 50%;
+  }
+  .marshaller.stop .wand.left{transform:translateX(-50%) rotate(45deg)}
+  .marshaller.stop .wand.right{transform:translateX(-50%) rotate(-45deg)}
+
+  @keyframes forwardLeft{0%,100%{transform:rotate(-28deg)}50%{transform:rotate(-43deg)}}
+  @keyframes forwardRight{0%,100%{transform:rotate(28deg)}50%{transform:rotate(43deg)}}
+  @keyframes slowLeft{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(-23deg)}}
+  @keyframes slowRight{0%,100%{transform:rotate(12deg)}50%{transform:rotate(23deg)}}
+  .signal{
+    position:absolute;
+    left:0;right:0;bottom:8px;
+    color:var(--red);
+    text-align:center;
+    font-size:12px;
+    font-weight:800;
+    letter-spacing:.06em;
+  }
+
+  .stand-tag{
+    position:absolute;
+    top:clamp(26px,6vw,52px);
+    right:24px;
+    width:108px;
+    padding:8px 10px;
+    border-left:3px solid var(--yellow);
+    background:rgba(52,59,65,.78);
+    color:#d8dcde;
+    font-size:11px;
+    font-weight:800;
+    line-height:1.35;
+    letter-spacing:.04em;
+  }
+
+  @media(max-width:620px){
+    .marshaller{right:96px;width:92px;height:82px}
+    .wand{height:38px;top:14px}
+    .wand.left{left:31px}.wand.right{right:31px}
+    .signal{font-size:10px;bottom:7px}
+    .stand-tag{display:none}
+  }
+  @media(prefers-reduced-motion:reduce){.wand{transition:none;animation:none!important}}
+</style>
+</head>
+<body>
+<main class="stage" aria-label="Aircraft guided into an airport stand">
+  <svg viewBox="0 0 1000 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <path id="guidePath" class="stand-line" d="M-55 231 H690"/>
+    <path id="activeLine" d="M-55 231 H690"/>
+
+    <g id="plane" transform="translate(-55 231) rotate(90) scale(1.35)">
+      <path d="M0,-19 C2,-18 3,-15 3,-11 L3,-5 L14,2 L14,5 L3,2 L3,11 L7,15 L7,17 L0,15 L-7,17 L-7,15 L-3,11 L-3,2 L-14,5 L-14,2 L-3,-5 L-3,-11 C-3,-15 -2,-18 0,-19 Z"/>
+    </g>
+  </svg>
+
+  <div class="marshaller" id="marshaller">
+    <span class="wand left"></span>
+    <span class="wand right"></span>
+    <span class="signal" id="signal">FORWARD</span>
+  </div>
+
+  <div class="stand-tag">STAND 112<br><span id="distance">110 m</span></div>
+</main>
+
+<script>
+  const plane=document.getElementById('plane');
+  const path=document.getElementById('guidePath');
+  const active=document.getElementById('activeLine');
+  const marshaller=document.getElementById('marshaller');
+  const signal=document.getElementById('signal');
+  const distance=document.getElementById('distance');
+  const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const length=path.getTotalLength();
+
+  active.style.strokeDasharray=length;
+  active.style.strokeDashoffset=length;
+
+  const wait=ms=>new Promise(resolve=>setTimeout(resolve,reduceMotion?0:ms));
+  const smooth=t=>t*t*(3-2*t);
+
+  function place(progress){
+    const l=length*progress;
+    const p=path.getPointAtLength(l);
+    const a=path.getPointAtLength(Math.min(length,l+3));
+    const angle=Math.atan2(a.y-p.y,a.x-p.x)*180/Math.PI+90;
+    plane.setAttribute('transform',`translate(${p.x} ${p.y}) rotate(${angle}) scale(1.35)`);
+    active.style.strokeDashoffset=length*(1-progress);
+
+    const metres=Math.max(0,Math.round(110*(1-progress)));
+    distance.textContent=`${metres} m`;
+
+    const stopped=progress>=.9995;
+    marshaller.classList.toggle('slow',progress>=.67&&!stopped);
+    marshaller.classList.toggle('stop',stopped);
+    signal.textContent=stopped?'STOP':progress>=.67?'SLOW':'FORWARD';
+  }
+
+  function animate(duration,start,end){
+    return new Promise(resolve=>{
+      if(reduceMotion){place(end);resolve();return}
+      const began=performance.now();
+      function tick(now){
+        const raw=Math.min(1,(now-began)/duration);
+        place(start+(end-start)*smooth(raw));
+        if(raw<1)requestAnimationFrame(tick);else resolve();
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function reset(){
+    marshaller.classList.remove('slow','stop');
+    signal.textContent='FORWARD';
+    place(0);
+  }
+
+  async function sequence(){
+    while(true){
+      reset();
+      await wait(700);
+      await animate(5200,0,.67);
+      await wait(380);
+      await animate(8500,.67,1);
+      await wait(1900);
+    }
+  }
+
+  sequence();
+</script>
+</body>
+</html>
